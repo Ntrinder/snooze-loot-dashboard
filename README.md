@@ -34,6 +34,9 @@ Two services sharing one Postgres database:
   as `DATABASE_URL` (Railway reference variable). It is the ONLY secret — no API keys exist in
   this app (the Google Sheet and Wowhead are public).
 - Do NOT modify the pre-existing Railway project; create a brand-new one.
+- **Start commands are per-service** (`pnpm start:web` vs `pnpm ingest`), set in each service's
+  settings. `railway.json` deliberately defines only the shared **build**, not a `startCommand` —
+  a single start command there would be forced onto both services.
 
 ## Maintaining the roster
 
