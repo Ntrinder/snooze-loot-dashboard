@@ -65,7 +65,9 @@ endpoint for ingest (it is a scheduled command), so there is no trigger secret t
 - **`item_meta`** — `item_id` (PK) → `name`, `quality` (int), `icon` (string), `fetched_at`.
   Enriched from Wowhead **once per new item ID**, then cached forever (item data is immutable).
 - **`roster`** — `player` (PK) → `role` (`caster-dps | melee-dps | tank | healer`), `active` (bool).
-  Upserted from the committed `roster.ts` on every ingest, so the file stays the source of truth.
+  Edited via the in-app **`/roster` page** (see §7), which lists every distinct player seen in the
+  dump with a specialty dropdown. A row exists only for an assigned player; unassigning removes it.
+  This table is the source of truth for player → role.
 - **`ingest_runs`** — `id`, `ran_at`, `status` (`ok | error`), `awards_seen`, `awards_new`,
   `items_enriched`, `error_message`. Powers the nav bar's **stale / error indicator**.
 
@@ -77,8 +79,10 @@ endpoint for ingest (it is a scheduled command), so there is no trigger secret t
 4. **Enrich items:** for each `item_id` not already in `item_meta`, fetch Wowhead's tooltip JSON
    (`https://nether.wowhead.com/tbc/tooltip/item/<id>`) once and store name/quality/icon. Failures
    are logged per item and never abort the run; a missing item simply renders as plain text later.
-5. **Seed `roster`** from `roster.ts` (upsert; deactivate players no longer listed).
-6. **Record** an `ingest_runs` row (status + counts, or the error).
+5. **Record** an `ingest_runs` row (status + counts, or the error).
+
+Ingest does **not** manage the roster — that is owned by the `/roster` page (§7). New players simply
+appear as `awards` rows; the roster page surfaces them for specialty assignment.
 
 ## 6. Compute layer (server-side, pure, unit-tested)
 
@@ -121,6 +125,13 @@ custom properties. Item icons load from `https://wow.zamimg.com/images/wow/icons
 using the icon slug already cached in `item_meta`; a missing icon degrades to plain coloured text
 and never breaks a row. A lightweight loading skeleton covers the initial data load.
 
+**Roster page (`/roster`).** A simple management page listing every distinct player that appears in
+`awards` (left join to `roster` for the current assignment), each row a `<select>` of the four
+specialties plus an "Unassigned" option. Changing a dropdown autosaves via `POST /api/roster`
+(`{ player, role | null }`): a role upserts the roster row, "Unassigned" deletes it. No auth in v1
+(low-stakes, link-shared); a shared passphrase can be layered on later. Unassigned players are
+excluded from the decision tables and trends, unchanged.
+
 ## 8. Repository
 
 - New **public** GitHub repo `Ntrinder/snooze-loot-dashboard`.
@@ -129,7 +140,7 @@ and never breaks a row. A lightweight loading skeleton covers the initial data l
 
 ## 9. Out of scope (v1 / YAGNI)
 
-- No auth and no in-app roster editor (roster is edited by committing `roster.ts`).
+- No auth on the roster editor in v1 (link-shared, low-stakes; shared-passphrase gating deferred).
 - No per-boss views, filters, or historical season switching beyond the trends cards.
 - No write access of any kind to the source sheet.
 - No item-centric "candidate compare" mode (deferred; the per-specialty tables are the v1 surface).

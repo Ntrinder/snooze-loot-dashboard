@@ -1005,8 +1005,8 @@ git commit -m "feat: season-level trends compute"
 - Produces:
   - Drizzle tables `awards`, `itemMeta`, `roster`, `ingestRuns`.
   - `getDb(): PostgresJsDatabase` (singleton from `DATABASE_URL`).
-  - `interface WriteStore { upsertAwards(a: Award[]): Promise<number>; knownItemIds(): Promise<Set<number>>; insertItemMeta(m: ItemMeta): Promise<void>; syncRoster(r: RosterEntry[]): Promise<void>; recordRun(run: RunRecord): Promise<void> }`
-  - `interface ReadStore { allAwards(): Promise<Award[]>; allItemMeta(): Promise<ItemMeta[]>; lastRun(): Promise<RunRecord | null> }`
+  - `interface WriteStore { upsertAwards(a: Award[]): Promise<number>; knownItemIds(): Promise<Set<number>>; insertItemMeta(m: ItemMeta): Promise<void>; setRole(player: string, role: Role | null): Promise<void>; recordRun(run: RunRecord): Promise<void> }` — `setRole` upserts the roster row for a role, or deletes it when `role` is null.
+  - `interface ReadStore { allAwards(): Promise<Award[]>; allItemMeta(): Promise<ItemMeta[]>; allRoster(): Promise<RosterEntry[]>; distinctPlayers(): Promise<string[]>; lastRun(): Promise<RunRecord | null> }` — `distinctPlayers` is the sorted distinct `player` set across all `awards`.
   - `interface RunRecord { ranAt: Date; status: 'ok' | 'error'; awardsSeen: number; awardsNew: number; itemsEnriched: number; errorMessage: string | null }`
   - `drizzleStores(db): WriteStore & ReadStore`
 
@@ -1115,8 +1115,7 @@ Expected: a new SQL file appears under `drizzle/` with `CREATE TABLE` for all fo
 - [ ] **Step 4: Create `src/db/stores.ts`**
 
 ```ts
-import { inArray } from 'drizzle-orm';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
 import { awards, itemMeta, roster, ingestRuns } from './schema';
@@ -1136,13 +1135,15 @@ export interface WriteStore {
   upsertAwards(a: Award[]): Promise<number>;
   knownItemIds(): Promise<Set<number>>;
   insertItemMeta(m: ItemMeta): Promise<void>;
-  syncRoster(r: RosterEntry[]): Promise<void>;
+  setRole(player: string, role: Role | null): Promise<void>;
   recordRun(run: RunRecord): Promise<void>;
 }
 
 export interface ReadStore {
   allAwards(): Promise<Award[]>;
   allItemMeta(): Promise<ItemMeta[]>;
+  allRoster(): Promise<RosterEntry[]>;
+  distinctPlayers(): Promise<string[]>;
   lastRun(): Promise<RunRecord | null>;
 }
 
@@ -1173,17 +1174,13 @@ export function drizzleStores(db: PostgresJsDatabase<typeof schema>): WriteStore
     async insertItemMeta(m) {
       await db.insert(itemMeta).values(m).onConflictDoNothing({ target: itemMeta.itemId });
     },
-    async syncRoster(entries) {
-      const players = entries.map((e) => e.player);
-      await db.transaction(async (tx) => {
-        for (const e of entries) {
-          await tx.insert(roster).values(e).onConflictDoUpdate({ target: roster.player, set: { role: e.role, active: e.active } });
-        }
-        // deactivate anyone no longer listed
-        const existing = await tx.select({ player: roster.player }).from(roster);
-        const stale = existing.map((r) => r.player).filter((p) => !players.includes(p));
-        if (stale.length) await tx.update(roster).set({ active: false }).where(inArray(roster.player, stale));
-      });
+    async setRole(player, role) {
+      if (role === null) {
+        await db.delete(roster).where(eq(roster.player, player));
+      } else {
+        await db.insert(roster).values({ player, role, active: true })
+          .onConflictDoUpdate({ target: roster.player, set: { role, active: true } });
+      }
     },
     async recordRun(run) {
       await db.insert(ingestRuns).values({
@@ -1202,6 +1199,14 @@ export function drizzleStores(db: PostgresJsDatabase<typeof schema>): WriteStore
     async allItemMeta() {
       const rows = await db.select().from(itemMeta);
       return rows.map((r) => ({ itemId: r.itemId, name: r.name, quality: r.quality, icon: r.icon }));
+    },
+    async allRoster() {
+      const rows = await db.select().from(roster).where(eq(roster.active, true));
+      return rows.map((r) => ({ player: r.player, role: r.role as Role, active: r.active }));
+    },
+    async distinctPlayers() {
+      const rows = await db.selectDistinct({ player: awards.player }).from(awards);
+      return rows.map((r) => r.player).sort((a, b) => a.localeCompare(b));
     },
     async lastRun() {
       const [r] = await db.select().from(ingestRuns).orderBy(desc(ingestRuns.ranAt)).limit(1);
@@ -1226,72 +1231,126 @@ git commit -m "feat: Drizzle schema, client, migrations, and store adapters"
 
 ---
 
-### Task 9: Roster config
+### Task 9: Roster list model + API route
 
 **Files:**
-- Create: `src/config/roster.ts`, `src/config/roster.test.ts`
+- Create: `src/lib/rosterList.ts`, `src/lib/rosterList.test.ts`, `src/app/api/roster/route.ts`
 
 **Interfaces:**
-- Consumes: `RosterEntry`, `Role` (types.ts).
-- Produces: `export const ROSTER: RosterEntry[]` — the committed source of truth for player → role.
+- Consumes: `Role`, `ROLES` (types.ts); `RosterEntry` (types.ts); `ReadStore`, `WriteStore` (stores.ts).
+- Produces:
+  - `interface RosterListEntry { player: string; role: Role | null }`
+  - `mergeRosterList(players: string[], roster: RosterEntry[]): RosterListEntry[]` — every distinct player (union of `players` and roster players), sorted, each annotated with its current role or `null` if unassigned. Pure and unit-tested.
+  - `isRole(v: unknown): v is Role` — runtime guard used by the POST route to validate input.
+  - `GET /api/roster` → `RosterListEntry[]` (JSON, `no-store`).
+  - `POST /api/roster` with body `{ player: string; role: Role | null }` → validates, calls `store.setRole`, returns `{ ok: true }`; 400 on a bad role or missing player.
 
-  Seed it from the players visible in the real dump; the requester edits this file over time. Validity: unique players, valid roles.
-
-- [ ] **Step 1: Write the failing test** — `src/config/roster.test.ts`
+- [ ] **Step 1: Write the failing test** — `src/lib/rosterList.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { ROSTER } from './roster';
-import { ROLES } from '../lib/types';
+import { mergeRosterList, isRole } from './rosterList';
+import type { RosterEntry } from './types';
 
-describe('ROSTER', () => {
-  it('has unique player names', () => {
-    const names = ROSTER.map((r) => r.player);
-    expect(new Set(names).size).toBe(names.length);
+describe('mergeRosterList', () => {
+  const roster: RosterEntry[] = [{ player: 'Azurepath', role: 'caster-dps', active: true }];
+
+  it('unions award players with roster and marks unassigned as null', () => {
+    const list = mergeRosterList(['Fennie', 'Azurepath'], roster);
+    expect(list).toEqual([
+      { player: 'Azurepath', role: 'caster-dps' },
+      { player: 'Fennie', role: null },
+    ]);
   });
-  it('uses only valid roles', () => {
-    for (const r of ROSTER) expect(ROLES).toContain(r.role);
+  it('includes roster players even if absent from awards', () => {
+    const list = mergeRosterList([], roster);
+    expect(list).toEqual([{ player: 'Azurepath', role: 'caster-dps' }]);
   });
-  it('is non-empty', () => {
-    expect(ROSTER.length).toBeGreaterThan(0);
+  it('dedupes and sorts', () => {
+    const list = mergeRosterList(['Zed', 'Ana', 'Zed'], []);
+    expect(list.map((e) => e.player)).toEqual(['Ana', 'Zed']);
+  });
+});
+
+describe('isRole', () => {
+  it('accepts valid roles only', () => {
+    expect(isRole('caster-dps')).toBe(true);
+    expect(isRole('healer')).toBe(true);
+    expect(isRole('bard')).toBe(false);
+    expect(isRole(null)).toBe(false);
   });
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run src/config/roster.test.ts`
-Expected: FAIL — cannot find module `./roster`.
+Run: `pnpm vitest run src/lib/rosterList.test.ts`
+Expected: FAIL — cannot find module `./rosterList`.
 
-- [ ] **Step 3: Create `src/config/roster.ts`** (seed with known players; requester extends this)
+- [ ] **Step 3: Create `src/lib/rosterList.ts`**
 
 ```ts
-import type { RosterEntry } from '../lib/types';
+import type { Role, RosterEntry } from './types';
+import { ROLES } from './types';
 
-// Source of truth for player → specialty role. Edit this file (commit + push) as
-// the roster changes. `active: false` retires a player without deleting history.
-export const ROSTER: RosterEntry[] = [
-  { player: 'Fennie', role: 'caster-dps', active: true },
-  { player: 'Azurepath', role: 'caster-dps', active: true },
-  { player: 'Kouzbee', role: 'tank', active: true },
-  { player: 'Boonage', role: 'healer', active: true },
-  { player: 'Skyttles', role: 'melee-dps', active: true },
-  // TODO(requester): complete the roster for all 25 raiders before go-live.
-];
+export interface RosterListEntry {
+  player: string;
+  role: Role | null;
+}
+
+export function isRole(v: unknown): v is Role {
+  return typeof v === 'string' && (ROLES as string[]).includes(v);
+}
+
+export function mergeRosterList(players: string[], roster: RosterEntry[]): RosterListEntry[] {
+  const roleOf = new Map<string, Role>();
+  for (const r of roster) roleOf.set(r.player, r.role);
+  const all = new Set<string>([...players, ...roster.map((r) => r.player)]);
+  return [...all]
+    .sort((a, b) => a.localeCompare(b))
+    .map((player) => ({ player, role: roleOf.get(player) ?? null }));
+}
 ```
 
-> Note: the `TODO(requester)` marker is an intentional operational hand-off to Niall (a data-entry task he owns), not an incomplete code path. The app runs correctly with a partial roster — unrostered players are simply omitted from the tables until added.
+- [ ] **Step 4: Create `src/app/api/roster/route.ts`**
 
-- [ ] **Step 4: Run test to verify it passes**
+```ts
+import { NextResponse } from 'next/server';
+import { getDb } from '../../../db/client';
+import { drizzleStores } from '../../../db/stores';
+import { mergeRosterList, isRole } from '../../../lib/rosterList';
 
-Run: `pnpm vitest run src/config/roster.test.ts`
-Expected: PASS.
+export const dynamic = 'force-dynamic';
 
-- [ ] **Step 5: Commit**
+export async function GET() {
+  const store = drizzleStores(getDb());
+  const [players, roster] = await Promise.all([store.distinctPlayers(), store.allRoster()]);
+  return NextResponse.json(mergeRosterList(players, roster), { headers: { 'Cache-Control': 'no-store' } });
+}
+
+export async function POST(req: Request) {
+  const body = (await req.json().catch(() => null)) as { player?: unknown; role?: unknown } | null;
+  if (!body || typeof body.player !== 'string' || !body.player) {
+    return NextResponse.json({ error: 'player is required' }, { status: 400 });
+  }
+  if (body.role !== null && !isRole(body.role)) {
+    return NextResponse.json({ error: 'invalid role' }, { status: 400 });
+  }
+  await drizzleStores(getDb()).setRole(body.player, body.role as Parameters<ReturnType<typeof drizzleStores>['setRole']>[1]);
+  return NextResponse.json({ ok: true });
+}
+```
+
+- [ ] **Step 5: Run test + typecheck**
+
+Run: `pnpm vitest run src/lib/rosterList.test.ts && pnpm typecheck`
+Expected: PASS + exit 0.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/config/roster.ts src/config/roster.test.ts
-git commit -m "feat: committed roster config (player to specialty role)"
+git add src/lib/rosterList.ts src/lib/rosterList.test.ts src/app/api/roster/route.ts
+git commit -m "feat: roster list model + GET/POST /api/roster"
 ```
 
 ---
@@ -1450,10 +1509,10 @@ git commit -m "feat: public sheet CSV fetch with HTML-guard"
 - Create: `src/ingest/run.ts`, `src/ingest/run.test.ts`, `src/ingest/cli.ts`
 
 **Interfaces:**
-- Consumes: `WriteStore`, `RunRecord` (stores.ts); `parseAwards` (csv.ts); `fetchItemMeta` (wowhead.ts); `fetchSheetCsv` (sheet.ts); `ROSTER` (roster.ts); `Award` (types.ts).
+- Consumes: `WriteStore`, `RunRecord` (stores.ts); `parseAwards` (csv.ts); `fetchItemMeta` (wowhead.ts); `fetchSheetCsv` (sheet.ts); `Award` (types.ts).
 - Produces:
-  - `interface IngestDeps { store: WriteStore; fetchCsv: () => Promise<string>; fetchItem: (id: number) => Promise<{ name: string; quality: number; icon: string } | null>; roster: RosterEntry[]; now: () => Date }`
-  - `runIngest(deps: IngestDeps): Promise<RunRecord>` — parses, upserts awards, enriches unknown item IDs, syncs roster, records a run. On any thrown error it records an `error` run and rethrows.
+  - `interface IngestDeps { store: WriteStore; fetchCsv: () => Promise<string>; fetchItem: (id: number) => Promise<{ name: string; quality: number; icon: string } | null>; now: () => Date }`
+  - `runIngest(deps: IngestDeps): Promise<RunRecord>` — parses, upserts awards, enriches unknown item IDs, records a run. Does NOT touch the roster (owned by the `/roster` page). On any thrown error it records an `error` run and rethrows.
   - `cli.ts` wires real deps (drizzle store, real fetchers) and calls `runIngest`, exiting non-zero on failure.
 
 - [ ] **Step 1: Write the failing test** — `src/ingest/run.test.ts`
@@ -1464,10 +1523,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { runIngest } from './run';
 import type { WriteStore, RunRecord } from '../db/stores';
-import type { RosterEntry } from '../lib/types';
 
 const csv = readFileSync(path.join(__dirname, '../../tests/fixtures/dump.csv'), 'utf8');
-const roster: RosterEntry[] = [{ player: 'Fennie', role: 'caster-dps', active: true }];
 
 function fakeStore(known: number[] = []): WriteStore & { meta: number[]; runs: RunRecord[] } {
   const meta = [...known];
@@ -1477,7 +1534,7 @@ function fakeStore(known: number[] = []): WriteStore & { meta: number[]; runs: R
     upsertAwards: vi.fn(async (a) => a.length),
     knownItemIds: vi.fn(async () => new Set(meta)),
     insertItemMeta: vi.fn(async (m) => { meta.push(m.itemId); }),
-    syncRoster: vi.fn(async () => {}),
+    setRole: vi.fn(async () => {}),
     recordRun: vi.fn(async (r) => { runs.push(r); }),
   };
 }
@@ -1486,12 +1543,13 @@ describe('runIngest', () => {
   it('parses, upserts, enriches unknown items, and records an ok run', async () => {
     const store = fakeStore([28776]); // 28776 already known
     const fetchItem = vi.fn(async (id: number) => ({ name: `Item ${id}`, quality: 4, icon: 'x' }));
-    const rec = await runIngest({ store, fetchCsv: async () => csv, fetchItem, roster, now: () => new Date(2026, 2, 22) });
+    const rec = await runIngest({ store, fetchCsv: async () => csv, fetchItem, now: () => new Date(2026, 2, 22) });
 
     expect(rec.status).toBe('ok');
     expect(rec.awardsSeen).toBe(7);
     expect(store.upsertAwards).toHaveBeenCalledOnce();
-    expect(store.syncRoster).toHaveBeenCalledWith(roster);
+    // ingest never touches the roster
+    expect(store.setRole).not.toHaveBeenCalled();
     // 6 distinct item IDs in fixture, minus the 1 already known = 6 enrichment fetches
     expect(fetchItem).toHaveBeenCalledTimes(6);
     expect(rec.itemsEnriched).toBe(6);
@@ -1501,7 +1559,7 @@ describe('runIngest', () => {
   it('records an error run and rethrows on failure', async () => {
     const store = fakeStore();
     await expect(
-      runIngest({ store, fetchCsv: async () => { throw new Error('down'); }, fetchItem: async () => null, roster, now: () => new Date() }),
+      runIngest({ store, fetchCsv: async () => { throw new Error('down'); }, fetchItem: async () => null, now: () => new Date() }),
     ).rejects.toThrow('down');
     expect(store.runs[0].status).toBe('error');
     expect(store.runs[0].errorMessage).toContain('down');
@@ -1518,19 +1576,17 @@ Expected: FAIL — cannot find module `./run`.
 
 ```ts
 import type { WriteStore, RunRecord } from '../db/stores';
-import type { RosterEntry } from '../lib/types';
 import { parseAwards } from '../lib/csv';
 
 export interface IngestDeps {
   store: WriteStore;
   fetchCsv: () => Promise<string>;
   fetchItem: (id: number) => Promise<{ name: string; quality: number; icon: string } | null>;
-  roster: RosterEntry[];
   now: () => Date;
 }
 
 export async function runIngest(deps: IngestDeps): Promise<RunRecord> {
-  const { store, fetchCsv, fetchItem, roster, now } = deps;
+  const { store, fetchCsv, fetchItem, now } = deps;
   let awardsSeen = 0;
   let awardsNew = 0;
   let itemsEnriched = 0;
@@ -1547,8 +1603,6 @@ export async function runIngest(deps: IngestDeps): Promise<RunRecord> {
       const meta = await fetchItem(id);
       if (meta) { await store.insertItemMeta({ itemId: id, ...meta }); itemsEnriched++; }
     }
-
-    await store.syncRoster(roster);
 
     const rec: RunRecord = { ranAt: now(), status: 'ok', awardsSeen, awardsNew, itemsEnriched, errorMessage: null };
     await store.recordRun(rec);
@@ -1569,7 +1623,6 @@ import { drizzleStores } from '../db/stores';
 import { fetchSheetCsv } from './sheet';
 import { fetchItemMeta } from './wowhead';
 import { runIngest } from './run';
-import { ROSTER } from '../config/roster';
 
 async function main() {
   const store = drizzleStores(getDb());
@@ -1577,7 +1630,6 @@ async function main() {
     store,
     fetchCsv: () => fetchSheetCsv(),
     fetchItem: (id) => fetchItemMeta(id),
-    roster: ROSTER,
     now: () => new Date(),
   });
   console.log(`ingest ok: seen=${rec.awardsSeen} new=${rec.awardsNew} enriched=${rec.itemsEnriched}`);
@@ -1614,7 +1666,7 @@ git commit -m "feat: ingest pipeline orchestration + CLI entry"
 - Produces:
   - `interface IngestStatus { status: 'ok' | 'error' | 'never'; ranAt: string | null; ageMinutes: number | null; error: string | null }`
   - `interface DashboardData { generatedAt: string; ingest: IngestStatus; tables: Record<Role, SpecialtyTable>; trends: TrendsData }`
-  - `buildDashboard(store: ReadStore, roster: RosterEntry[], now: Date): Promise<DashboardData>`
+  - `buildDashboard(store: ReadStore, now: Date): Promise<DashboardData>` — reads awards, item meta, roster, and last run from the store.
   - `GET` route returning `DashboardData` as JSON with `Cache-Control: no-store`.
 
 - [ ] **Step 1: Write the failing test** — `src/server/dashboard.test.ts`
@@ -1639,6 +1691,8 @@ function store(run: RunRecord | null): ReadStore {
   return {
     allAwards: async () => parseAwards(csv),
     allItemMeta: async () => [{ itemId: 28776, name: "Liar's Tongue Gloves", quality: 3, icon: 'inv_gloves_25' }],
+    allRoster: async () => roster,
+    distinctPlayers: async () => [...new Set(parseAwards(csv).map((a) => a.player))].sort(),
     lastRun: async () => run,
   };
 }
@@ -1646,7 +1700,7 @@ function store(run: RunRecord | null): ReadStore {
 describe('buildDashboard', () => {
   it('assembles tables + trends + ok ingest status', async () => {
     const ranAt = new Date(2026, 2, 22, 11, 30, 0); // 30 min before now
-    const data = await buildDashboard(store({ ranAt, status: 'ok', awardsSeen: 7, awardsNew: 7, itemsEnriched: 6, errorMessage: null }), roster, now);
+    const data = await buildDashboard(store({ ranAt, status: 'ok', awardsSeen: 7, awardsNew: 7, itemsEnriched: 6, errorMessage: null }), now);
     expect(data.ingest.status).toBe('ok');
     expect(data.ingest.ageMinutes).toBe(30);
     expect(data.tables['caster-dps'].rows.length).toBe(2);
@@ -1654,7 +1708,7 @@ describe('buildDashboard', () => {
   });
 
   it('reports "never" when there is no run', async () => {
-    const data = await buildDashboard(store(null), roster, now);
+    const data = await buildDashboard(store(null), now);
     expect(data.ingest.status).toBe('never');
     expect(data.ingest.ageMinutes).toBeNull();
   });
@@ -1670,7 +1724,7 @@ Expected: FAIL — cannot find module `./dashboard`.
 
 ```ts
 import type { ReadStore } from '../db/stores';
-import type { RosterEntry, Role, ItemMeta } from '../lib/types';
+import type { Role, ItemMeta } from '../lib/types';
 import { computeTables, type SpecialtyTable } from '../lib/compute';
 import { computeTrends, type TrendsData } from '../lib/trends';
 
@@ -1688,8 +1742,10 @@ export interface DashboardData {
   trends: TrendsData;
 }
 
-export async function buildDashboard(store: ReadStore, roster: RosterEntry[], now: Date): Promise<DashboardData> {
-  const [awards, metaRows, run] = await Promise.all([store.allAwards(), store.allItemMeta(), store.lastRun()]);
+export async function buildDashboard(store: ReadStore, now: Date): Promise<DashboardData> {
+  const [awards, metaRows, roster, run] = await Promise.all([
+    store.allAwards(), store.allItemMeta(), store.allRoster(), store.lastRun(),
+  ]);
   const meta = new Map<number, ItemMeta>(metaRows.map((m) => [m.itemId, m]));
 
   const ingest: IngestStatus = run
@@ -1717,12 +1773,11 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../db/client';
 import { drizzleStores } from '../../../db/stores';
 import { buildDashboard } from '../../../server/dashboard';
-import { ROSTER } from '../../../config/roster';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const data = await buildDashboard(drizzleStores(getDb()), ROSTER, new Date());
+  const data = await buildDashboard(drizzleStores(getDb()), new Date());
   return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } });
 }
 ```
@@ -2029,13 +2084,12 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
 import { getDb } from '../db/client';
 import { drizzleStores } from '../db/stores';
 import { buildDashboard } from '../server/dashboard';
-import { ROSTER } from '../config/roster';
 import { Dashboard } from '../components/Dashboard';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Page() {
-  const data = await buildDashboard(drizzleStores(getDb()), ROSTER, new Date());
+  const data = await buildDashboard(drizzleStores(getDb()), new Date());
   return <Dashboard initial={data} />;
 }
 ```
@@ -2392,7 +2446,175 @@ git commit -m "feat: breakdowns & trends view"
 
 ---
 
-### Task 18: Deployment config, README, and go-live
+### Task 18: Roster admin page
+
+**Files:**
+- Create: `src/app/roster/page.tsx`, `src/components/RosterEditor.tsx`, `src/components/RosterEditor.test.tsx`
+- Modify: `src/components/Nav.tsx` (add a link to `/roster`)
+
+**Interfaces:**
+- Consumes: `RosterListEntry`, `mergeRosterList` (rosterList.ts); `Role`, `ROLES`, `ROLE_LABELS` (types.ts); `ReadStore` (stores.ts).
+- Produces:
+  - `/roster` server page: loads the merged list (`distinctPlayers` ∪ `allRoster`) and renders `<RosterEditor initial={...} />`.
+  - `<RosterEditor initial={RosterListEntry[]} />` — a table of players, each with a specialty `<select>` (the four roles + "Unassigned"). On change it optimistically updates local state and `POST`s `{ player, role }` to `/api/roster` (role `null` for Unassigned); on a failed response it reverts the row and shows an inline "save failed" note.
+
+- [ ] **Step 1: Write the failing test** — `src/components/RosterEditor.test.tsx`
+
+```tsx
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { RosterEditor } from './RosterEditor';
+import type { RosterListEntry } from '../lib/rosterList';
+
+const initial: RosterListEntry[] = [
+  { player: 'Azurepath', role: 'caster-dps' },
+  { player: 'Fennie', role: null },
+];
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }) as Response));
+});
+
+describe('RosterEditor', () => {
+  it('renders every player with its current role selected', () => {
+    render(<RosterEditor initial={initial} />);
+    expect(screen.getByText('Azurepath')).toBeTruthy();
+    const fennie = screen.getByLabelText('specialty for Fennie') as HTMLSelectElement;
+    expect(fennie.value).toBe('');
+  });
+
+  it('POSTs the new role on change', async () => {
+    render(<RosterEditor initial={initial} />);
+    const fennie = screen.getByLabelText('specialty for Fennie') as HTMLSelectElement;
+    fireEvent.change(fennie, { target: { value: 'healer' } });
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/roster', expect.objectContaining({ method: 'POST' })));
+    const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body).toEqual({ player: 'Fennie', role: 'healer' });
+  });
+
+  it('sends role null when set to Unassigned', async () => {
+    render(<RosterEditor initial={initial} />);
+    const azure = screen.getByLabelText('specialty for Azurepath') as HTMLSelectElement;
+    fireEvent.change(azure, { target: { value: '' } });
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body).toEqual({ player: 'Azurepath', role: null });
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm vitest run src/components/RosterEditor.test.tsx`
+Expected: FAIL — cannot find module `./RosterEditor`.
+
+- [ ] **Step 3: Create `src/components/RosterEditor.tsx`**
+
+```tsx
+'use client';
+import { useState } from 'react';
+import type { Role } from '../lib/types';
+import { ROLES, ROLE_LABELS } from '../lib/types';
+import type { RosterListEntry } from '../lib/rosterList';
+
+export function RosterEditor({ initial }: { initial: RosterListEntry[] }) {
+  const [rows, setRows] = useState(initial);
+  const [failed, setFailed] = useState<Record<string, boolean>>({});
+
+  async function save(player: string, role: Role | null) {
+    const prev = rows;
+    setRows((rs) => rs.map((r) => (r.player === player ? { ...r, role } : r)));
+    setFailed((f) => ({ ...f, [player]: false }));
+    try {
+      const res = await fetch('/api/roster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player, role }),
+      });
+      if (!res.ok) throw new Error('bad status');
+    } catch {
+      setRows(prev); // revert
+      setFailed((f) => ({ ...f, [player]: true }));
+    }
+  }
+
+  return (
+    <main className="page">
+      <header style={{ padding: 'var(--space-6) 0' }}>
+        <h1 style={{ fontSize: 28, fontWeight: 500, margin: 0 }}>Roster</h1>
+        <p className="muted" style={{ maxWidth: '62ch' }}>
+          Assign each player a specialty. Players appear here automatically once they receive loot.
+          Unassigned players are hidden from the decision tables.
+        </p>
+      </header>
+      <div className="card elev-sm" style={{ overflow: 'hidden' }}>
+        <table className="table" style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14 }}>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.player}>
+                <td style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', fontWeight: 500 }}>
+                  {r.player}
+                  {failed[r.player] && <span style={{ color: '#ff8000', marginLeft: 8, fontSize: 12 }}>save failed</span>}
+                </td>
+                <td style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', textAlign: 'right' }}>
+                  <select
+                    aria-label={`specialty for ${r.player}`}
+                    value={r.role ?? ''}
+                    onChange={(e) => save(r.player, e.target.value === '' ? null : (e.target.value as Role))}
+                    style={{ background: 'var(--color-neutral-800)', color: 'var(--color-text)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '4px 8px' }}
+                  >
+                    <option value="">Unassigned</option>
+                    {ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </main>
+  );
+}
+```
+
+- [ ] **Step 4: Create `src/app/roster/page.tsx`**
+
+```tsx
+import { getDb } from '../../db/client';
+import { drizzleStores } from '../../db/stores';
+import { mergeRosterList } from '../../lib/rosterList';
+import { RosterEditor } from '../../components/RosterEditor';
+
+export const dynamic = 'force-dynamic';
+
+export default async function RosterPage() {
+  const store = drizzleStores(getDb());
+  const [players, roster] = await Promise.all([store.distinctPlayers(), store.allRoster()]);
+  return <RosterEditor initial={mergeRosterList(players, roster)} />;
+}
+```
+
+- [ ] **Step 5: Add a `/roster` link to `src/components/Nav.tsx`** — inside the right-hand `<div>`, before the auto-refresh tag, add:
+
+```tsx
+        <a href="/roster" className="tag tag-outline" style={{ textDecoration: 'none', color: 'var(--color-text)' }}>Roster</a>
+```
+
+- [ ] **Step 6: Run test + typecheck**
+
+Run: `pnpm vitest run src/components/RosterEditor.test.tsx && pnpm typecheck`
+Expected: PASS + exit 0.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/app/roster/page.tsx src/components/RosterEditor.tsx src/components/RosterEditor.test.tsx src/components/Nav.tsx
+git commit -m "feat: /roster admin page with autosaving specialty dropdowns"
+```
+
+---
+
+### Task 19: Deployment config, README, and go-live
 
 **Files:**
 - Create: `README.md`, `railway.json`, `.env.example` (verify from Task 1)
@@ -2460,9 +2682,9 @@ Two services sharing one Postgres database:
 
 ## Maintaining the roster
 
-The roster (player → specialty role) is the one thing not derivable from the sheet. Edit
-`src/config/roster.ts`, commit, and push — the next ingest syncs it. Set `active: false` to retire
-a player without losing their history.
+The roster (player → specialty role) is the one thing not derivable from the sheet. Open the
+**`/roster`** page: every player who has received loot appears with a specialty dropdown. Assign a
+specialty (autosaves) or set "Unassigned" to hide them from the tables. No redeploy needed.
 ````
 
 - [ ] **Step 4: Verify the full build + suite locally**
@@ -2510,15 +2732,17 @@ Use the Railway MCP tools (authenticate first). Steps:
 ## Self-review notes (coverage against the spec)
 
 - Spec §3 architecture → Tasks 1, 8, 12, 13, 15 (Next.js app, DB, ingest, compute-on-read, UI).
-- Spec §4 data model (4 tables) → Task 8.
-- Spec §5 ingest pipeline → Tasks 10, 11, 12.
+- Spec §4 data model (4 tables; roster edited via `/roster`) → Tasks 8, 9, 18.
+- Spec §5 ingest pipeline (does NOT manage roster) → Tasks 10, 11, 12.
 - Spec §6 compute (filter, tier regex, recency, heatmap, trends) → Tasks 4, 5, 6, 7.
-- Spec §7 frontend (both views, frozen columns, quality colours, stale indicator, skeleton) →
-  Tasks 14, 15, 16, 17. (Loading skeleton: initial render is server-side so data is present on first
-  paint; the client poll keeps last-good data on failure — no blank state. An explicit skeleton is
-  therefore unnecessary for the server-rendered first paint; the stale indicator in Nav covers the
+- Spec §7 frontend (both views, frozen columns, quality colours, stale indicator, roster page) →
+  Tasks 14, 15, 16, 17, 18. (Loading skeleton: initial render is server-side so data is present on
+  first paint; the client poll keeps last-good data on failure — no blank state. An explicit skeleton
+  is therefore unnecessary for the server-rendered first paint; the stale indicator in Nav covers the
   failure requirement.)
-- Spec §8 repo (public, handoff copied, .env ignored) → Tasks 1, 18 + Provisioning.
+- Spec §7 roster page (`/roster`, list of players + specialty dropdowns, autosave, no v1 auth) →
+  Tasks 9 (model + API) and 18 (page UI).
+- Spec §8 repo (public, handoff copied, .env ignored) → Tasks 1, 19 + Provisioning.
 - Spec §2 no exposed secrets → only `DATABASE_URL`; verified by the `git grep` check in Provisioning.
 - **Known data consideration (surfaced, not silently dropped):** the real dump contains occasional
   quest/junk items awarded as `Mainspec/Need` (e.g. "Magtheridon's Head", subType `Junk`). Per the
