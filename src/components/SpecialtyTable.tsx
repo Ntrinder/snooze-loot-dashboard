@@ -5,8 +5,8 @@ import { ItemCellView } from './ItemCellView';
 
 export function sortRows(rows: PlayerRow[], key: SortKey, dir: SortDir): PlayerRow[] {
   const val = (r: PlayerRow) => (key === 'received' ? r.received : key === 'tierCount' ? r.tierCount : (r.weeksSinceLast ?? -1));
-  const sorted = [...rows].sort((a, b) => val(a) - val(b) || a.player.localeCompare(b.player));
-  return dir === 'asc' ? sorted : sorted.reverse();
+  const mult = dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => mult * (val(a) - val(b)) || a.player.localeCompare(b.player));
 }
 
 const frozen: React.CSSProperties = { position: 'sticky', background: 'var(--surface)', zIndex: 1 };

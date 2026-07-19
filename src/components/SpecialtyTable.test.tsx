@@ -16,6 +16,13 @@ describe('sortRows', () => {
   it('sorts descending by weeks', () => {
     expect(sortRows(rows, 'weeks', 'desc').map((r) => r.player)).toEqual(['Bravo', 'Alpha']);
   });
+  it('maintains stable ascending tie-break on descending sort', () => {
+    const tiedRows: PlayerRow[] = [
+      { player: 'Zeta', className: 'ROGUE', received: 5, tierCount: 2, weeksSinceLast: 1, recencyLabel: '1 wk ago', heatmap: 60, items: [] },
+      { player: 'Alpha', className: 'MAGE', received: 5, tierCount: 3, weeksSinceLast: 2, recencyLabel: '2 wks ago', heatmap: 70, items: [] },
+    ];
+    expect(sortRows(tiedRows, 'received', 'desc').map((r) => r.player)).toEqual(['Alpha', 'Zeta']);
+  });
 });
 
 describe('SpecialtyTable', () => {
