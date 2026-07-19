@@ -6,6 +6,7 @@ import { ROLES, ROLE_LABELS } from '../lib/types';
 import { Nav } from './Nav';
 import { Segmented } from './Segmented';
 import { SpecialtyTable } from './SpecialtyTable';
+import { TrendsView } from './TrendsView';
 
 export type SortKey = 'received' | 'tierCount' | 'weeks';
 export type SortDir = 'asc' | 'desc';
@@ -52,7 +53,7 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
                 onSort={(k) => { if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); else { setSortKey(k); setSortDir('asc'); } }}
               />
             </div>
-          : <div className="card elev-sm">{/* TrendsView lands in Task 17 */}<div style={{ padding: 'var(--space-6)' }} className="muted">Trends — {data.trends.awardsThisSeason} awards this season</div></div>}
+          : <TrendsView trends={data.trends} />}
       </main>
     </>
   );
