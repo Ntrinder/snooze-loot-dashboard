@@ -1,0 +1,8 @@
+player,date,time,item,itemID,itemString,response,votes,class,instance,boss,gear1,gear2,responseID,isAwardReason,rollType,subType,equipLoc,note,owner
+Fennie-Thunderstrike,2/22/2026,20:51:00,[Liar's Tongue Gloves],28776,item:28776::::::::70,Mainspec/Need,0,SHAMAN,Magtheridon's Lair-25 Player,Magtheridon,[Fel Leather Gloves],,1,FALSE,normal,Leather,Hands,,Pop-Thunderstrike
+Kouzbee-Thunderstrike,2/22/2026,20:50:00,[Gauntlets of Martial Perfection],28824,item:28824::::::::70,Mainspec/Need,0,WARRIOR,Magtheridon's Lair-25 Player,Magtheridon,[Fel Leather Gloves],,1,FALSE,normal,Plate,Hands,bis,Pop-Thunderstrike
+Azurepath-Thunderstrike,2/22/2026,20:51:00,[Belt of Divine Inspiration],28799,item:28799::::::::70,Mainspec/Need,1,WARLOCK,Magtheridon's Lair-25 Player,Magtheridon,[A'dal's Gift],,1,FALSE,normal,Cloth,Waist,,Pop-Thunderstrike
+Boonage-Thunderstrike,2/22/2026,20:49:00,[Pauldrons of the Fallen Champion],29763,item:29763::::::::70,Mainspec/Need,0,PALADIN,Magtheridon's Lair-25 Player,Magtheridon,[Mantle of Abrahmis],,1,FALSE,normal,Armor Token,,bis,Pop-Thunderstrike
+Azurepath-Thunderstrike,3/1/2026,21:10:00,[Robe of the Fallen Champion],29764,item:29764::::::::70,Mainspec/Need,0,WARLOCK,Serpentshrine Cavern-25 Player,Hydross,[Belt of Divine Inspiration],,1,FALSE,normal,Armor Token,,,Pop-Thunderstrike
+Azurepath-Thunderstrike,3/1/2026,21:30:00,[Fathom-Brooch of the Tidewalker],30663,item:30663::::::::70,Offspec/Greed,0,WARLOCK,Serpentshrine Cavern-25 Player,Tidewalker,,,4,FALSE,normal,Trinket,Trinket,,Pop-Thunderstrike
+Fennie-Thunderstrike,3/1/2026,22:00:00,[Cowl of the Fallen Hero],29055,item:29055::::::::70,Mainspec/Need,0,SHAMAN,Serpentshrine Cavern-25 Player,Leotheras,,,1,FALSE,normal,Armor Token,,,Pop-Thunderstrike
