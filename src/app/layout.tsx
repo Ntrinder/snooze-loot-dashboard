@@ -7,7 +7,7 @@ export const metadata = { title: 'Snooze Loot Dashboard' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.className}>
+    <html lang="en" className={inter.variable}>
       <body>{children}</body>
     </html>
   );

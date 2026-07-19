@@ -14,8 +14,8 @@
   --space-1: 3px; --space-2: 6px; --space-3: 9px; --space-4: 12px;
   --space-5: 16px; --space-6: 22px; --space-8: 32px; --space-10: 48px;
   --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
-  --font-body: Inter, system-ui, sans-serif;
-  --font-heading: Inter, system-ui, sans-serif;
+  --font-body: var(--font-inter), system-ui, sans-serif;
+  --font-heading: var(--font-inter), system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
