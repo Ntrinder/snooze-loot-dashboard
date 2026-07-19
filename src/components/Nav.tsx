@@ -6,6 +6,7 @@ export function Nav({ ingest }: { ingest: IngestStatus }) {
     <nav className="nav" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-5) var(--space-8)' }}>
       <strong style={{ fontWeight: 500 }}>Snooze Loot</strong>
       <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
+        <a href="/roster" className="tag tag-outline" style={{ textDecoration: 'none', color: 'var(--color-text)' }}>Roster</a>
         {stale ? (
           <span className="tag tag-outline" style={{ color: '#ff8000' }}>
             {ingest.status === 'error' ? 'Ingest failed — data may be stale' : 'Data may be stale'}
