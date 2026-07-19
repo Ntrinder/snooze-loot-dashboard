@@ -1,7 +1,7 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
-import { awards, itemMeta, roster, ingestRuns } from './schema';
+import { awards, itemMeta, roster, ingestRuns, config } from './schema';
 import type { Award, ItemMeta, RosterEntry, Role } from '../lib/types';
 import { dedupKey } from '../lib/dedup';
 
@@ -19,6 +19,8 @@ export interface WriteStore {
   knownItemIds(): Promise<Set<number>>;
   insertItemMeta(m: ItemMeta): Promise<void>;
   setRole(player: string, role: Role | null): Promise<void>;
+  setDead(player: string, dead: boolean): Promise<void>;
+  setConfig(key: string, value: string): Promise<void>;
   recordRun(run: RunRecord): Promise<void>;
 }
 
@@ -27,6 +29,7 @@ export interface ReadStore {
   allItemMeta(): Promise<ItemMeta[]>;
   allRoster(): Promise<RosterEntry[]>;
   distinctPlayers(): Promise<string[]>;
+  getConfig(key: string): Promise<string | null>;
   lastRun(): Promise<RunRecord | null>;
 }
 
@@ -58,12 +61,19 @@ export function drizzleStores(db: PostgresJsDatabase<typeof schema>): WriteStore
       await db.insert(itemMeta).values(m).onConflictDoNothing({ target: itemMeta.itemId });
     },
     async setRole(player, role) {
-      if (role === null) {
-        await db.delete(roster).where(eq(roster.player, player));
-      } else {
-        await db.insert(roster).values({ player, role, active: true })
-          .onConflictDoUpdate({ target: roster.player, set: { role, active: true } });
-      }
+      await db.insert(roster).values({ player, role, dead: false })
+        .onConflictDoUpdate({ target: roster.player, set: { role } });
+      // A row with no role and not dead carries no information — drop it.
+      await db.delete(roster).where(and(eq(roster.player, player), isNull(roster.role), eq(roster.dead, false)));
+    },
+    async setDead(player, dead) {
+      await db.insert(roster).values({ player, role: null, dead })
+        .onConflictDoUpdate({ target: roster.player, set: { dead } });
+      await db.delete(roster).where(and(eq(roster.player, player), isNull(roster.role), eq(roster.dead, false)));
+    },
+    async setConfig(key, value) {
+      await db.insert(config).values({ key, value })
+        .onConflictDoUpdate({ target: config.key, set: { value } });
     },
     async recordRun(run) {
       await db.insert(ingestRuns).values({
@@ -84,12 +94,16 @@ export function drizzleStores(db: PostgresJsDatabase<typeof schema>): WriteStore
       return rows.map((r) => ({ itemId: r.itemId, name: r.name, quality: r.quality, icon: r.icon }));
     },
     async allRoster() {
-      const rows = await db.select().from(roster).where(eq(roster.active, true));
-      return rows.map((r) => ({ player: r.player, role: r.role as Role, active: r.active }));
+      const rows = await db.select().from(roster);
+      return rows.map((r) => ({ player: r.player, role: (r.role as Role | null), dead: r.dead }));
     },
     async distinctPlayers() {
       const rows = await db.selectDistinct({ player: awards.player }).from(awards);
       return rows.map((r) => r.player).sort((a, b) => a.localeCompare(b));
+    },
+    async getConfig(key) {
+      const [r] = await db.select().from(config).where(eq(config.key, key)).limit(1);
+      return r?.value ?? null;
     },
     async lastRun() {
       const [r] = await db.select().from(ingestRuns).orderBy(desc(ingestRuns.ranAt)).limit(1);

@@ -26,22 +26,40 @@ export function RosterEditor({ initial }: { initial: RosterListEntry[] }) {
     }
   }
 
+  async function saveDead(player: string, dead: boolean) {
+    const prevDead = rows.find((r) => r.player === player)?.dead ?? false;
+    setRows((rs) => rs.map((r) => (r.player === player ? { ...r, dead } : r)));
+    setFailed((f) => ({ ...f, [player]: false }));
+    try {
+      const res = await fetch('/api/roster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player, dead }),
+      });
+      if (!res.ok) throw new Error('bad status');
+    } catch {
+      setRows((rs) => rs.map((r) => (r.player === player && r.dead === dead ? { ...r, dead: prevDead } : r)));
+      setFailed((f) => ({ ...f, [player]: true }));
+    }
+  }
+
   return (
     <main className="page">
       <header style={{ padding: 'var(--space-6) 0' }}>
         <h1 style={{ fontSize: 28, fontWeight: 500, margin: 0 }}>Roster</h1>
         <p className="muted" style={{ maxWidth: '62ch' }}>
           Assign each player a specialty. Players appear here automatically once they receive loot.
-          Unassigned players are hidden from the decision tables.
+          Unassigned players are hidden from the decision tables. Mark a player <strong>Dead</strong>
+          {' '}to hide them from every other page while keeping them here.
         </p>
       </header>
       <div className="card elev-sm" style={{ overflow: 'hidden' }}>
         <table className="table" style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14 }}>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.player}>
+              <tr key={r.player} style={{ opacity: r.dead ? 0.5 : 1 }}>
                 <td style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', fontWeight: 500 }}>
-                  {r.player}
+                  <span style={{ textDecoration: r.dead ? 'line-through' : 'none' }}>{r.player}</span>
                   {failed[r.player] && <span style={{ color: '#ff8000', marginLeft: 8, fontSize: 12 }}>save failed</span>}
                 </td>
                 <td style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', textAlign: 'right' }}>
@@ -54,6 +72,17 @@ export function RosterEditor({ initial }: { initial: RosterListEntry[] }) {
                     <option value="">Unassigned</option>
                     {ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
                   </select>
+                </td>
+                <td style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      aria-label={`dead ${r.player}`}
+                      checked={r.dead}
+                      onChange={(e) => saveDead(r.player, e.target.checked)}
+                    />
+                    Dead
+                  </label>
                 </td>
               </tr>
             ))}

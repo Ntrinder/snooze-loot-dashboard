@@ -10,10 +10,10 @@ const awards = parseAwards(csv);
 const now = new Date(2026, 2, 22, 12, 0, 0);
 
 const roster: RosterEntry[] = [
-  { player: 'Fennie', role: 'caster-dps', active: true },
-  { player: 'Azurepath', role: 'caster-dps', active: true },
-  { player: 'Kouzbee', role: 'tank', active: true },
-  { player: 'Boonage', role: 'healer', active: true },
+  { player: 'Fennie', role: 'caster-dps', dead: false },
+  { player: 'Azurepath', role: 'caster-dps', dead: false },
+  { player: 'Kouzbee', role: 'tank', dead: false },
+  { player: 'Boonage', role: 'healer', dead: false },
 ];
 
 const meta = new Map<number, ItemMeta>([
@@ -62,5 +62,18 @@ describe('computeTables', () => {
   it('produces an entry for every role', () => {
     expect(Object.keys(tables).sort()).toEqual(['caster-dps', 'healer', 'melee-dps', 'tank']);
     expect(tables['melee-dps'].rows).toHaveLength(0);
+  });
+
+  it('excludes dead players even when they have a role', () => {
+    const withDead = roster.map((r) => (r.player === 'Fennie' ? { ...r, dead: true } : r));
+    const t = computeTables(awards, withDead, meta, now);
+    expect(t['caster-dps'].rows.map((r) => r.player)).not.toContain('Fennie');
+    expect(t['caster-dps'].rows.map((r) => r.player)).toContain('Azurepath');
+  });
+
+  it('excludes players with no role assigned', () => {
+    const noRole: RosterEntry[] = [{ player: 'Fennie', role: null, dead: false }];
+    const t = computeTables(awards, noRole, meta, now);
+    expect(t['caster-dps'].rows).toHaveLength(0);
   });
 });

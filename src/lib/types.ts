@@ -24,9 +24,11 @@ export interface Award {
 
 export interface RosterEntry {
   player: string;
-  role: Role;
-  active: boolean;
+  role: Role | null;
+  dead: boolean;
 }
+
+export type Phase = 'all' | 'phase1' | 'phase2';
 
 export interface ItemMeta {
   itemId: number;

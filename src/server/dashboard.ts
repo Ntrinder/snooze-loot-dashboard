@@ -1,5 +1,5 @@
 import type { ReadStore } from '../db/stores';
-import type { Role, ItemMeta } from '../lib/types';
+import type { Role, ItemMeta, Phase, Award } from '../lib/types';
 import { computeTables, type SpecialtyTable } from '../lib/compute';
 import { computeTrends, type TrendsData } from '../lib/trends';
 
@@ -15,12 +15,22 @@ export interface DashboardData {
   ingest: IngestStatus;
   tables: Record<Role, SpecialtyTable>;
   trends: TrendsData;
+  phase: Phase;
+  hasPhase2: boolean;
 }
 
-export async function buildDashboard(store: ReadStore, now: Date): Promise<DashboardData> {
-  const [awards, metaRows, roster, run] = await Promise.all([
-    store.allAwards(), store.allItemMeta(), store.allRoster(), store.lastRun(),
+export function filterByPhase(awards: Award[], phase: Phase, boundary: Date | null): Award[] {
+  if (phase === 'all') return awards;
+  if (!boundary) return phase === 'phase1' ? awards : [];
+  return awards.filter((a) => (phase === 'phase1' ? a.awardedAt < boundary : a.awardedAt >= boundary));
+}
+
+export async function buildDashboard(store: ReadStore, now: Date, phase: Phase = 'all'): Promise<DashboardData> {
+  const [awards, metaRows, roster, run, phase2Raw] = await Promise.all([
+    store.allAwards(), store.allItemMeta(), store.allRoster(), store.lastRun(), store.getConfig('phase2_start'),
   ]);
+  const boundary = phase2Raw ? new Date(phase2Raw) : null;
+  const filtered = filterByPhase(awards, phase, boundary);
   const meta = new Map<number, ItemMeta>(metaRows.map((m) => [m.itemId, m]));
 
   const ingest: IngestStatus = run
@@ -35,7 +45,9 @@ export async function buildDashboard(store: ReadStore, now: Date): Promise<Dashb
   return {
     generatedAt: now.toISOString(),
     ingest,
-    tables: computeTables(awards, roster, meta, now),
-    trends: computeTrends(awards, roster, now),
+    tables: computeTables(filtered, roster, meta, now),
+    trends: computeTrends(filtered, roster, now),
+    phase,
+    hasPhase2: boundary !== null,
   };
 }

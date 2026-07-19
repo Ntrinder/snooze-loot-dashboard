@@ -30,6 +30,27 @@ interface RawRow {
   note: string;
 }
 
+const PHASE2_MARKER = 'PHASE 2 START';
+
+/**
+ * The sheet contains a marker row whose player cell reads "PHASE 2 START" and
+ * carries no date of its own. The Phase-2 boundary is the award date of the
+ * first real award row appearing after that marker. Returns null if the marker
+ * (or any award after it) is absent.
+ */
+export function findPhase2Start(csv: string): Date | null {
+  const { data } = Papa.parse<RawRow>(csv, { header: true, skipEmptyLines: true });
+  let seenMarker = false;
+  for (const r of data) {
+    if ((r.player || '').trim().toUpperCase() === PHASE2_MARKER) {
+      seenMarker = true;
+      continue;
+    }
+    if (seenMarker && r.player && r.date) return parseAwardedAt(r.date, r.time);
+  }
+  return null;
+}
+
 export function parseAwards(csv: string): Award[] {
   const { data } = Papa.parse<RawRow>(csv, { header: true, skipEmptyLines: true });
   const out: Award[] = [];

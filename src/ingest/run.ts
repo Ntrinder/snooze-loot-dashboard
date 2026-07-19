@@ -1,5 +1,5 @@
 import type { WriteStore, RunRecord } from '../db/stores';
-import { parseAwards } from '../lib/csv';
+import { parseAwards, findPhase2Start } from '../lib/csv';
 
 export interface IngestDeps {
   store: WriteStore;
@@ -19,6 +19,9 @@ export async function runIngest(deps: IngestDeps): Promise<RunRecord> {
     awardsSeen = awards.length;
 
     awardsNew = await store.upsertAwards(awards);
+
+    const phase2Start = findPhase2Start(csv);
+    if (phase2Start) await store.setConfig('phase2_start', phase2Start.toISOString());
 
     const known = await store.knownItemIds();
     const wanted = [...new Set(awards.map((a) => a.itemId).filter((id): id is number => id !== null))].filter((id) => !known.has(id));

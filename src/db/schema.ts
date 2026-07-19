@@ -29,8 +29,13 @@ export const itemMeta = pgTable('item_meta', {
 
 export const roster = pgTable('roster', {
   player: text('player').primaryKey(),
-  role: text('role').notNull(),
-  active: boolean('active').notNull().default(true),
+  role: text('role'),
+  dead: boolean('dead').notNull().default(false),
+});
+
+export const config = pgTable('config', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
 });
 
 export const ingestRuns = pgTable('ingest_runs', {

@@ -35,7 +35,7 @@ export function computeTables(
   now: Date,
 ): Record<Role, SpecialtyTable> {
   const roleOf = new Map<string, Role>();
-  for (const r of roster) if (r.active) roleOf.set(r.player, r.role);
+  for (const r of roster) if (r.role && !r.dead) roleOf.set(r.player, r.role);
 
   const byPlayer = new Map<string, Award[]>();
   for (const a of awards) {

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { DashboardData } from '../server/dashboard';
-import type { Role } from '../lib/types';
+import type { Role, Phase } from '../lib/types';
 import { ROLES, ROLE_LABELS } from '../lib/types';
 import { Nav } from './Nav';
 import { Segmented } from './Segmented';
@@ -15,18 +15,23 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
   const [data, setData] = useState(initial);
   const [mode, setMode] = useState<'table' | 'trends'>('table');
   const [role, setRole] = useState<Role>('caster-dps');
+  const [phase, setPhase] = useState<Phase>('all');
   const [sortKey, setSortKey] = useState<SortKey>('received');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
+  // Fetch on phase change, then keep polling for that phase.
   useEffect(() => {
-    const id = setInterval(async () => {
+    let cancelled = false;
+    const load = async () => {
       try {
-        const res = await fetch('/api/data', { cache: 'no-store' });
-        if (res.ok) setData(await res.json());
+        const res = await fetch(`/api/data?phase=${phase}`, { cache: 'no-store' });
+        if (res.ok && !cancelled) setData(await res.json());
       } catch { /* keep last good data */ }
-    }, 5 * 60 * 1000);
-    return () => clearInterval(id);
-  }, []);
+    };
+    load();
+    const id = setInterval(load, 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [phase]);
 
   return (
     <>
@@ -42,6 +47,13 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
           <Segmented options={[{ value: 'table', label: 'Specialty tables' }, { value: 'trends', label: 'Breakdowns & trends' }]} value={mode} onChange={setMode} />
           {mode === 'table' && (
             <Segmented options={ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))} value={role} onChange={setRole} />
+          )}
+          {data.hasPhase2 && (
+            <Segmented
+              options={[{ value: 'all', label: 'All' }, { value: 'phase1', label: 'Phase 1' }, { value: 'phase2', label: 'Phase 2' }]}
+              value={phase}
+              onChange={setPhase}
+            />
           )}
         </div>
         {mode === 'table'

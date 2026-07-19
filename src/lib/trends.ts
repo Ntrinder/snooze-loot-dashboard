@@ -28,7 +28,7 @@ function weekStartOf(d: Date): Date {
 
 export function computeTrends(awards: Award[], roster: RosterEntry[], now: Date): TrendsData {
   const roleOf = new Map<string, Role>();
-  for (const r of roster) if (r.active) roleOf.set(r.player, r.role);
+  for (const r of roster) if (r.role && !r.dead) roleOf.set(r.player, r.role);
 
   const relevant = awards.filter((a) => a.response === 'Mainspec/Need' && roleOf.has(a.player));
 

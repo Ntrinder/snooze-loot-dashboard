@@ -4,8 +4,8 @@ import { RosterEditor } from './RosterEditor';
 import type { RosterListEntry } from '../lib/rosterList';
 
 const initial: RosterListEntry[] = [
-  { player: 'Azurepath', role: 'caster-dps' },
-  { player: 'Fennie', role: null },
+  { player: 'Azurepath', role: 'caster-dps', dead: false },
+  { player: 'Fennie', role: null, dead: false },
 ];
 
 beforeEach(() => {
@@ -36,6 +36,25 @@ describe('RosterEditor', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
     expect(body).toEqual({ player: 'Azurepath', role: null });
+  });
+
+  it('POSTs the dead flag when the checkbox is toggled', async () => {
+    render(<RosterEditor initial={initial} />);
+    const deadBox = screen.getByLabelText('dead Fennie') as HTMLInputElement;
+    expect(deadBox.checked).toBe(false);
+    fireEvent.click(deadBox);
+    await waitFor(() => expect(deadBox.checked).toBe(true));
+    const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body).toEqual({ player: 'Fennie', dead: true });
+  });
+
+  it('reverts the dead checkbox on a failed save', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({}) }) as Response));
+    render(<RosterEditor initial={initial} />);
+    const deadBox = screen.getByLabelText('dead Azurepath') as HTMLInputElement;
+    fireEvent.click(deadBox);
+    await waitFor(() => expect(deadBox.checked).toBe(false));
+    expect(screen.getByText('save failed')).toBeTruthy();
   });
 
   it('reverts only the failed row, leaving other players untouched', async () => {

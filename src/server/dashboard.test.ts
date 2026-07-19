@@ -2,23 +2,24 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseAwards } from '../lib/csv';
-import { buildDashboard } from './dashboard';
+import { buildDashboard, filterByPhase } from './dashboard';
 import type { ReadStore, RunRecord } from '../db/stores';
-import type { RosterEntry } from '../lib/types';
+import type { RosterEntry, Award } from '../lib/types';
 
 const csv = readFileSync(path.join(__dirname, '../../tests/fixtures/dump.csv'), 'utf8');
 const roster: RosterEntry[] = [
-  { player: 'Fennie', role: 'caster-dps', active: true },
-  { player: 'Azurepath', role: 'caster-dps', active: true },
+  { player: 'Fennie', role: 'caster-dps', dead: false },
+  { player: 'Azurepath', role: 'caster-dps', dead: false },
 ];
 const now = new Date(2026, 2, 22, 12, 0, 0);
 
-function store(run: RunRecord | null): ReadStore {
+function store(run: RunRecord | null, phase2Start: string | null = null): ReadStore {
   return {
     allAwards: async () => parseAwards(csv),
     allItemMeta: async () => [{ itemId: 28776, name: "Liar's Tongue Gloves", quality: 3, icon: 'inv_gloves_25' }],
     allRoster: async () => roster,
     distinctPlayers: async () => [...new Set(parseAwards(csv).map((a) => a.player))].sort(),
+    getConfig: async (key) => (key === 'phase2_start' ? phase2Start : null),
     lastRun: async () => run,
   };
 }
@@ -37,5 +38,47 @@ describe('buildDashboard', () => {
     const data = await buildDashboard(store(null), now);
     expect(data.ingest.status).toBe('never');
     expect(data.ingest.ageMinutes).toBeNull();
+  });
+
+  it('hasPhase2 is false and phase echoed when no boundary is configured', async () => {
+    const data = await buildDashboard(store(null), now, 'phase2');
+    expect(data.hasPhase2).toBe(false);
+    expect(data.phase).toBe('phase2');
+  });
+
+  it('splits awards by the configured phase-2 boundary', async () => {
+    const boundary = new Date(2026, 2, 1).toISOString(); // Mar 1 — awards before are Phase 1
+    const ok: RunRecord = { ranAt: now, status: 'ok', awardsSeen: 0, awardsNew: 0, itemsEnriched: 0, errorMessage: null };
+    const p1 = await buildDashboard(store(ok, boundary), now, 'phase1');
+    const p2 = await buildDashboard(store(ok, boundary), now, 'phase2');
+    const all = await buildDashboard(store(ok, boundary), now, 'all');
+    expect(p1.hasPhase2).toBe(true);
+    expect(p1.trends.awardsThisSeason).toBe(2); // two 2/22 mainspec awards
+    expect(p2.trends.awardsThisSeason).toBe(2); // two 3/1 mainspec awards
+    expect(all.trends.awardsThisSeason).toBe(4);
+  });
+});
+
+describe('filterByPhase', () => {
+  const a = (d: Date): Award => ({
+    player: 'x', awardedAt: d, item: 'i', itemId: null, itemString: '', response: 'Mainspec/Need',
+    className: 'MAGE', instance: '', boss: '', note: '',
+  });
+  const boundary = new Date(2026, 4, 31);
+  const before = a(new Date(2026, 3, 19));
+  const after = a(new Date(2026, 5, 1));
+
+  it('returns everything for "all"', () => {
+    expect(filterByPhase([before, after], 'all', boundary)).toHaveLength(2);
+  });
+  it('phase1 keeps awards strictly before the boundary', () => {
+    expect(filterByPhase([before, after], 'phase1', boundary)).toEqual([before]);
+  });
+  it('phase2 keeps awards on/after the boundary', () => {
+    expect(filterByPhase([before, after], 'phase2', boundary)).toEqual([after]);
+  });
+  it('with no boundary, phase1 is everything and phase2 is empty', () => {
+    expect(filterByPhase([before, after], 'phase1', null)).toHaveLength(2);
+    expect(filterByPhase([before, after], 'phase2', null)).toHaveLength(0);
   });
 });
