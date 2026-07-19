@@ -4,8 +4,8 @@ import { RosterEditor } from './RosterEditor';
 import type { RosterListEntry } from '../lib/rosterList';
 
 const initial: RosterListEntry[] = [
-  { player: 'Azurepath', role: 'caster-dps', dead: false },
-  { player: 'Fennie', role: null, dead: false },
+  { player: 'Azurepath', role: 'caster-dps', dead: false, raid: 1 },
+  { player: 'Fennie', role: null, dead: false, raid: null },
 ];
 
 beforeEach(() => {
@@ -46,6 +46,26 @@ describe('RosterEditor', () => {
     await waitFor(() => expect(deadBox.checked).toBe(true));
     const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
     expect(body).toEqual({ player: 'Fennie', dead: true });
+  });
+
+  it('POSTs the raid as a number when the dropdown changes', async () => {
+    render(<RosterEditor initial={initial} />);
+    const raidSel = screen.getByLabelText('raid for Fennie') as HTMLSelectElement;
+    expect(raidSel.value).toBe('');
+    fireEvent.change(raidSel, { target: { value: '2' } });
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body).toEqual({ player: 'Fennie', raid: 2 });
+  });
+
+  it('sends raid null when set back to No raid', async () => {
+    render(<RosterEditor initial={initial} />);
+    const raidSel = screen.getByLabelText('raid for Azurepath') as HTMLSelectElement;
+    expect(raidSel.value).toBe('1');
+    fireEvent.change(raidSel, { target: { value: '' } });
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body).toEqual({ player: 'Azurepath', raid: null });
   });
 
   it('reverts the dead checkbox on a failed save', async () => {

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { DashboardData } from '../server/dashboard';
-import type { Role, Phase } from '../lib/types';
+import type { Role, Phase, RaidFilter } from '../lib/types';
 import { ROLES, ROLE_LABELS } from '../lib/types';
 import { Nav } from './Nav';
 import { Segmented } from './Segmented';
@@ -16,22 +16,23 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
   const [mode, setMode] = useState<'table' | 'trends'>('table');
   const [role, setRole] = useState<Role>('caster-dps');
   const [phase, setPhase] = useState<Phase>('all');
+  const [raid, setRaid] = useState<RaidFilter>('both');
   const [sortKey, setSortKey] = useState<SortKey>('received');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  // Fetch on phase change, then keep polling for that phase.
+  // Fetch on phase/raid change, then keep polling for that selection.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await fetch(`/api/data?phase=${phase}`, { cache: 'no-store' });
+        const res = await fetch(`/api/data?phase=${phase}&raid=${raid}`, { cache: 'no-store' });
         if (res.ok && !cancelled) setData(await res.json());
       } catch { /* keep last good data */ }
     };
     load();
     const id = setInterval(load, 5 * 60 * 1000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [phase]);
+  }, [phase, raid]);
 
   return (
     <>
@@ -53,6 +54,13 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
               options={[{ value: 'all', label: 'All' }, { value: 'phase1', label: 'Phase 1' }, { value: 'phase2', label: 'Phase 2' }]}
               value={phase}
               onChange={setPhase}
+            />
+          )}
+          {data.hasRaids && (
+            <Segmented
+              options={[{ value: 'both', label: 'Both raids' }, { value: 'raid1', label: 'Raid 1' }, { value: 'raid2', label: 'Raid 2' }]}
+              value={raid}
+              onChange={setRaid}
             />
           )}
         </div>

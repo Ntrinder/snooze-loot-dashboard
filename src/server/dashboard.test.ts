@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseAwards } from '../lib/csv';
-import { buildDashboard, filterByPhase } from './dashboard';
+import { buildDashboard, filterByPhase, filterRosterByRaid } from './dashboard';
 import type { ReadStore, RunRecord } from '../db/stores';
 import type { RosterEntry, Award } from '../lib/types';
 
 const csv = readFileSync(path.join(__dirname, '../../tests/fixtures/dump.csv'), 'utf8');
 const roster: RosterEntry[] = [
-  { player: 'Fennie', role: 'caster-dps', dead: false },
-  { player: 'Azurepath', role: 'caster-dps', dead: false },
+  { player: 'Fennie', role: 'caster-dps', dead: false, raid: 1 },
+  { player: 'Azurepath', role: 'caster-dps', dead: false, raid: 2 },
 ];
 const now = new Date(2026, 2, 22, 12, 0, 0);
 
@@ -56,6 +56,36 @@ describe('buildDashboard', () => {
     expect(p1.trends.awardsThisSeason).toBe(2); // two 2/22 mainspec awards
     expect(p2.trends.awardsThisSeason).toBe(2); // two 3/1 mainspec awards
     expect(all.trends.awardsThisSeason).toBe(4);
+  });
+
+  it('hasRaids is true when any player has a raid, and defaults to both', async () => {
+    const data = await buildDashboard(store(null), now);
+    expect(data.hasRaids).toBe(true);
+    expect(data.raid).toBe('both');
+    expect(data.tables['caster-dps'].rows.length).toBe(2);
+  });
+
+  it('filters the roster to the selected raid', async () => {
+    const r1 = await buildDashboard(store(null), now, 'all', 'raid1');
+    const r2 = await buildDashboard(store(null), now, 'all', 'raid2');
+    expect(r1.raid).toBe('raid1');
+    expect(r1.tables['caster-dps'].rows.map((row) => row.player)).toEqual(['Fennie']);
+    expect(r2.tables['caster-dps'].rows.map((row) => row.player)).toEqual(['Azurepath']);
+  });
+});
+
+describe('filterRosterByRaid', () => {
+  const r: RosterEntry[] = [
+    { player: 'A', role: 'tank', dead: false, raid: 1 },
+    { player: 'B', role: 'healer', dead: false, raid: 2 },
+    { player: 'C', role: 'tank', dead: false, raid: null },
+  ];
+  it('returns everyone for "both"', () => {
+    expect(filterRosterByRaid(r, 'both').map((e) => e.player)).toEqual(['A', 'B', 'C']);
+  });
+  it('keeps only the matching raid, dropping unassigned', () => {
+    expect(filterRosterByRaid(r, 'raid1').map((e) => e.player)).toEqual(['A']);
+    expect(filterRosterByRaid(r, 'raid2').map((e) => e.player)).toEqual(['B']);
   });
 });
 

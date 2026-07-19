@@ -10,10 +10,10 @@ const awards = parseAwards(csv);
 const now = new Date(2026, 2, 22, 12, 0, 0);
 
 const roster: RosterEntry[] = [
-  { player: 'Fennie', role: 'caster-dps', dead: false },
-  { player: 'Azurepath', role: 'caster-dps', dead: false },
-  { player: 'Kouzbee', role: 'tank', dead: false },
-  { player: 'Boonage', role: 'healer', dead: false },
+  { player: 'Fennie', role: 'caster-dps', dead: false, raid: null },
+  { player: 'Azurepath', role: 'caster-dps', dead: false, raid: null },
+  { player: 'Kouzbee', role: 'tank', dead: false, raid: null },
+  { player: 'Boonage', role: 'healer', dead: false, raid: null },
 ];
 
 const meta = new Map<number, ItemMeta>([
@@ -72,7 +72,7 @@ describe('computeTables', () => {
   });
 
   it('excludes players with no role assigned', () => {
-    const noRole: RosterEntry[] = [{ player: 'Fennie', role: null, dead: false }];
+    const noRole: RosterEntry[] = [{ player: 'Fennie', role: null, dead: false, raid: null }];
     const t = computeTables(awards, noRole, meta, now);
     expect(t['caster-dps'].rows).toHaveLength(0);
   });

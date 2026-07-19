@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import type { Role } from '../lib/types';
+import type { Role, Raid } from '../lib/types';
 import { ROLES, ROLE_LABELS } from '../lib/types';
 import type { RosterListEntry } from '../lib/rosterList';
 
@@ -43,14 +43,32 @@ export function RosterEditor({ initial }: { initial: RosterListEntry[] }) {
     }
   }
 
+  async function saveRaid(player: string, raid: Raid | null) {
+    const prevRaid = rows.find((r) => r.player === player)?.raid ?? null;
+    setRows((rs) => rs.map((r) => (r.player === player ? { ...r, raid } : r)));
+    setFailed((f) => ({ ...f, [player]: false }));
+    try {
+      const res = await fetch('/api/roster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player, raid }),
+      });
+      if (!res.ok) throw new Error('bad status');
+    } catch {
+      setRows((rs) => rs.map((r) => (r.player === player && r.raid === raid ? { ...r, raid: prevRaid } : r)));
+      setFailed((f) => ({ ...f, [player]: true }));
+    }
+  }
+
   return (
     <main className="page">
       <header style={{ padding: 'var(--space-6) 0' }}>
         <h1 style={{ fontSize: 28, fontWeight: 500, margin: 0 }}>Roster</h1>
         <p className="muted" style={{ maxWidth: '62ch' }}>
-          Assign each player a specialty. Players appear here automatically once they receive loot.
-          Unassigned players are hidden from the decision tables. Mark a player <strong>Dead</strong>
-          {' '}to hide them from every other page while keeping them here.
+          Assign each player a specialty and a <strong>raid</strong>. Players appear here automatically once
+          they receive loot. Unassigned players are hidden from the decision tables; players with no raid show
+          only in the &ldquo;Both&rdquo; view. Mark a player <strong>Dead</strong> to hide them from every other
+          page while keeping them here.
         </p>
       </header>
       <div className="card elev-sm" style={{ overflow: 'hidden' }}>
@@ -71,6 +89,18 @@ export function RosterEditor({ initial }: { initial: RosterListEntry[] }) {
                   >
                     <option value="">Unassigned</option>
                     {ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
+                  </select>
+                </td>
+                <td style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', textAlign: 'right' }}>
+                  <select
+                    aria-label={`raid for ${r.player}`}
+                    value={r.raid ?? ''}
+                    onChange={(e) => saveRaid(r.player, e.target.value === '' ? null : (Number(e.target.value) as Raid))}
+                    style={{ background: 'var(--color-neutral-800)', color: 'var(--color-text)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '4px 8px' }}
+                  >
+                    <option value="">No raid</option>
+                    <option value="1">Raid 1</option>
+                    <option value="2">Raid 2</option>
                   </select>
                 </td>
                 <td style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', textAlign: 'right', whiteSpace: 'nowrap' }}>

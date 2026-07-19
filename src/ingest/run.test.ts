@@ -16,6 +16,7 @@ function fakeStore(known: number[] = []): WriteStore & { meta: number[]; runs: R
     insertItemMeta: vi.fn(async (m) => { meta.push(m.itemId); }),
     setRole: vi.fn(async () => {}),
     setDead: vi.fn(async () => {}),
+    setRaid: vi.fn(async () => {}),
     setConfig: vi.fn(async () => {}),
     recordRun: vi.fn(async (r) => { runs.push(r); }),
   };

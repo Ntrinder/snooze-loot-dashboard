@@ -1,5 +1,5 @@
 import type { ReadStore } from '../db/stores';
-import type { Role, ItemMeta, Phase, Award } from '../lib/types';
+import type { Role, ItemMeta, Phase, Award, RaidFilter, RosterEntry } from '../lib/types';
 import { computeTables, type SpecialtyTable } from '../lib/compute';
 import { computeTrends, type TrendsData } from '../lib/trends';
 
@@ -17,6 +17,8 @@ export interface DashboardData {
   trends: TrendsData;
   phase: Phase;
   hasPhase2: boolean;
+  raid: RaidFilter;
+  hasRaids: boolean;
 }
 
 export function filterByPhase(awards: Award[], phase: Phase, boundary: Date | null): Award[] {
@@ -25,12 +27,19 @@ export function filterByPhase(awards: Award[], phase: Phase, boundary: Date | nu
   return awards.filter((a) => (phase === 'phase1' ? a.awardedAt < boundary : a.awardedAt >= boundary));
 }
 
-export async function buildDashboard(store: ReadStore, now: Date, phase: Phase = 'all'): Promise<DashboardData> {
+export function filterRosterByRaid(roster: RosterEntry[], raid: RaidFilter): RosterEntry[] {
+  if (raid === 'both') return roster;
+  const want = raid === 'raid1' ? 1 : 2;
+  return roster.filter((r) => r.raid === want);
+}
+
+export async function buildDashboard(store: ReadStore, now: Date, phase: Phase = 'all', raid: RaidFilter = 'both'): Promise<DashboardData> {
   const [awards, metaRows, roster, run, phase2Raw] = await Promise.all([
     store.allAwards(), store.allItemMeta(), store.allRoster(), store.lastRun(), store.getConfig('phase2_start'),
   ]);
   const boundary = phase2Raw ? new Date(phase2Raw) : null;
   const filtered = filterByPhase(awards, phase, boundary);
+  const visibleRoster = filterRosterByRaid(roster, raid);
   const meta = new Map<number, ItemMeta>(metaRows.map((m) => [m.itemId, m]));
 
   const ingest: IngestStatus = run
@@ -45,9 +54,11 @@ export async function buildDashboard(store: ReadStore, now: Date, phase: Phase =
   return {
     generatedAt: now.toISOString(),
     ingest,
-    tables: computeTables(filtered, roster, meta, now),
-    trends: computeTrends(filtered, roster, now),
+    tables: computeTables(filtered, visibleRoster, meta, now),
+    trends: computeTrends(filtered, visibleRoster, now),
     phase,
     hasPhase2: boundary !== null,
+    raid,
+    hasRaids: roster.some((r) => r.raid !== null),
   };
 }

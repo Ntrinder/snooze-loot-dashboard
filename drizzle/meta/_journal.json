@@ -15,6 +15,13 @@
       "when": 1784482164937,
       "tag": "0001_good_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784483804244,
+      "tag": "0002_cold_genesis",
+      "breakpoints": true
     }
   ]
 }

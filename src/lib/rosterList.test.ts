@@ -1,24 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { mergeRosterList, isRole } from './rosterList';
+import { mergeRosterList, isRole, isRaid } from './rosterList';
 import type { RosterEntry } from './types';
 
 describe('mergeRosterList', () => {
-  const roster: RosterEntry[] = [{ player: 'Azurepath', role: 'caster-dps', dead: false }];
+  const roster: RosterEntry[] = [{ player: 'Azurepath', role: 'caster-dps', dead: false, raid: 1 }];
 
   it('unions award players with roster and marks unassigned as null', () => {
     const list = mergeRosterList(['Fennie', 'Azurepath'], roster);
     expect(list).toEqual([
-      { player: 'Azurepath', role: 'caster-dps', dead: false },
-      { player: 'Fennie', role: null, dead: false },
+      { player: 'Azurepath', role: 'caster-dps', dead: false, raid: 1 },
+      { player: 'Fennie', role: null, dead: false, raid: null },
     ]);
   });
   it('includes roster players even if absent from awards', () => {
     const list = mergeRosterList([], roster);
-    expect(list).toEqual([{ player: 'Azurepath', role: 'caster-dps', dead: false }]);
+    expect(list).toEqual([{ player: 'Azurepath', role: 'caster-dps', dead: false, raid: 1 }]);
   });
-  it('carries the dead flag through for roster players', () => {
-    const list = mergeRosterList(['Fennie'], [{ player: 'Fennie', role: 'healer', dead: true }]);
-    expect(list).toEqual([{ player: 'Fennie', role: 'healer', dead: true }]);
+  it('carries the dead flag and raid through for roster players', () => {
+    const list = mergeRosterList(['Fennie'], [{ player: 'Fennie', role: 'healer', dead: true, raid: 2 }]);
+    expect(list).toEqual([{ player: 'Fennie', role: 'healer', dead: true, raid: 2 }]);
   });
   it('dedupes and sorts', () => {
     const list = mergeRosterList(['Zed', 'Ana', 'Zed'], []);
@@ -32,5 +32,15 @@ describe('isRole', () => {
     expect(isRole('healer')).toBe(true);
     expect(isRole('bard')).toBe(false);
     expect(isRole(null)).toBe(false);
+  });
+});
+
+describe('isRaid', () => {
+  it('accepts only 1 and 2', () => {
+    expect(isRaid(1)).toBe(true);
+    expect(isRaid(2)).toBe(true);
+    expect(isRaid(3)).toBe(false);
+    expect(isRaid('1')).toBe(false);
+    expect(isRaid(null)).toBe(false);
   });
 });

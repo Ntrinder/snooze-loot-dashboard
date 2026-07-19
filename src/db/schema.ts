@@ -31,6 +31,7 @@ export const roster = pgTable('roster', {
   player: text('player').primaryKey(),
   role: text('role'),
   dead: boolean('dead').notNull().default(false),
+  raid: integer('raid'),
 });
 
 export const config = pgTable('config', {

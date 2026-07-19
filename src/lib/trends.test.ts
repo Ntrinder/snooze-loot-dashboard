@@ -10,10 +10,10 @@ const awards = parseAwards(csv);
 const now = new Date(2026, 2, 22, 12, 0, 0);
 
 const roster: RosterEntry[] = [
-  { player: 'Fennie', role: 'caster-dps', dead: false },
-  { player: 'Azurepath', role: 'caster-dps', dead: false },
-  { player: 'Kouzbee', role: 'tank', dead: false },
-  { player: 'Boonage', role: 'healer', dead: false },
+  { player: 'Fennie', role: 'caster-dps', dead: false, raid: null },
+  { player: 'Azurepath', role: 'caster-dps', dead: false, raid: null },
+  { player: 'Kouzbee', role: 'tank', dead: false, raid: null },
+  { player: 'Boonage', role: 'healer', dead: false, raid: null },
 ];
 
 describe('computeTrends', () => {
