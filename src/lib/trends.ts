@@ -60,12 +60,16 @@ export function computeTrends(awards: Award[], roster: RosterEntry[], now: Date)
     .map(([className, c]) => ({ className, received: c.received, tier: c.tier, players: c.players.size }))
     .sort((x, y) => y.received - x.received);
 
-  const leaders: LeaderRow[] = [...perPlayer.entries()].map(([player, p]) => {
+  interface LeaderComputation { player: string; className: string; role: Role; value: number; label: string; _weeks: number }
+  const leaders: LeaderComputation[] = [...perPlayer.entries()].map(([player, p]) => {
     const weeks = weeksSince(p.last, now);
-    return { player, className: p.className, role: p.role, value: p.count, label: recencyLabel(weeks), _weeks: weeks } as LeaderRow & { _weeks: number };
+    return { player, className: p.className, role: p.role, value: p.count, label: recencyLabel(weeks), _weeks: weeks };
   });
-  const heaviest = [...leaders].sort((a, b) => b.value - a.value).slice(0, 5);
-  const droughts = [...(leaders as (LeaderRow & { _weeks: number })[])]
+  const heaviest: LeaderRow[] = [...leaders]
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
+    .map(({ player, className, role, value, label }) => ({ player, className, role, value, label }));
+  const droughts: LeaderRow[] = [...leaders]
     .sort((a, b) => b._weeks - a._weeks)
     .slice(0, 5)
     .map((l) => ({ player: l.player, className: l.className, role: l.role, value: l._weeks, label: l.label }));

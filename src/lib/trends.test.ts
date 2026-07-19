@@ -41,6 +41,11 @@ describe('computeTrends', () => {
     expect(t.heaviest[0].value).toBeGreaterThanOrEqual(t.heaviest[t.heaviest.length - 1].value);
     expect(t.longestDrought).not.toBeNull();
   });
+  it('does not leak internal _weeks field into heaviest or longestDroughts', () => {
+    const expectedKeys = ['className', 'label', 'player', 'role', 'value'];
+    expect(Object.keys(t.heaviest[0]).sort()).toEqual(expectedKeys);
+    expect(Object.keys(t.longestDroughts[0]).sort()).toEqual(expectedKeys);
+  });
   it('buckets weekly activity oldest-first', () => {
     expect(t.weekly.length).toBeGreaterThan(0);
     expect(t.weekly.length).toBeLessThanOrEqual(10);
