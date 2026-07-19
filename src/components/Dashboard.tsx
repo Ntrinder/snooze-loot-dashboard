@@ -5,6 +5,7 @@ import type { Role } from '../lib/types';
 import { ROLES, ROLE_LABELS } from '../lib/types';
 import { Nav } from './Nav';
 import { Segmented } from './Segmented';
+import { SpecialtyTable } from './SpecialtyTable';
 
 export type SortKey = 'received' | 'tierCount' | 'weeks';
 export type SortDir = 'asc' | 'desc';
@@ -43,7 +44,14 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
           )}
         </div>
         {mode === 'table'
-          ? <div className="card elev-sm">{/* SpecialtyTable lands in Task 16 */}<div style={{ padding: 'var(--space-6)' }} className="muted">Table for {ROLE_LABELS[role]} — {data.tables[role].rows.length} players. sort={sortKey}/{sortDir}</div></div>
+          ? <div className="card elev-sm" style={{ overflow: 'hidden' }}>
+              <SpecialtyTable
+                table={data.tables[role]}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={(k) => { if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); else { setSortKey(k); setSortDir('asc'); } }}
+              />
+            </div>
           : <div className="card elev-sm">{/* TrendsView lands in Task 17 */}<div style={{ padding: 'var(--space-6)' }} className="muted">Trends — {data.trends.awardsThisSeason} awards this season</div></div>}
       </main>
     </>
