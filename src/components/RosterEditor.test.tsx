@@ -37,4 +37,16 @@ describe('RosterEditor', () => {
     const body = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
     expect(body).toEqual({ player: 'Azurepath', role: null });
   });
+
+  it('reverts only the failed row, leaving other players untouched', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({}) }) as Response));
+    render(<RosterEditor initial={initial} />);
+    const fennie = screen.getByLabelText('specialty for Fennie') as HTMLSelectElement;
+    const azure = screen.getByLabelText('specialty for Azurepath') as HTMLSelectElement;
+    fireEvent.change(fennie, { target: { value: 'healer' } });
+
+    await waitFor(() => expect(fennie.value).toBe(''));
+    expect(screen.getByText('save failed')).toBeTruthy();
+    expect(azure.value).toBe('caster-dps');
+  });
 });

@@ -9,7 +9,7 @@ export function RosterEditor({ initial }: { initial: RosterListEntry[] }) {
   const [failed, setFailed] = useState<Record<string, boolean>>({});
 
   async function save(player: string, role: Role | null) {
-    const prev = rows;
+    const prevRole = rows.find((r) => r.player === player)?.role ?? null;
     setRows((rs) => rs.map((r) => (r.player === player ? { ...r, role } : r)));
     setFailed((f) => ({ ...f, [player]: false }));
     try {
@@ -20,7 +20,8 @@ export function RosterEditor({ initial }: { initial: RosterListEntry[] }) {
       });
       if (!res.ok) throw new Error('bad status');
     } catch {
-      setRows(prev); // revert
+      // Revert ONLY this row, and only if no newer change superseded this save.
+      setRows((rs) => rs.map((r) => (r.player === player && r.role === role ? { ...r, role: prevRole } : r)));
       setFailed((f) => ({ ...f, [player]: true }));
     }
   }
